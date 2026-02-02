@@ -1,1 +1,1 @@
-import './globals.css'; export default function RootLayout({ children }: { children: React.ReactNode }) { return ( <html lang='zh'><body className='bg-slate-50 min-h-screen text-slate-900'>{children}</body></html> ) }
+import './globals.css'; export default function RootLayout({ children }: { children: React.ReactNode }) { return ( <html lang='zh'><body>{children}</body></html> ) }

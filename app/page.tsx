@@ -1,17 +1,18 @@
-
 'use client';
-import { useState, useMemo } from 'react';
-import { db } from '../lib/db';
+import { useState, useMemo, useEffect } from 'react';
+import { db, runMigration } from '../lib/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Wallet, Tag, Calendar, ArrowLeft, Zap, ChevronLeft, ChevronRight, PieChart as PieIcon, Plus, Download, Upload, RefreshCw, X } from 'lucide-react';
-
-interface CatStat { total: number; accounts: Record<number, number>; }
 
 export default function Home() {
   const [view, setView] = useState('LIST');
   const [showSync, setShowSync] = useState(false);
   const [syncData, setSyncData] = useState('');
   const [currentDate, setCurrentDate] = useState(new Date());
+
+  useEffect(() => {
+    runMigration();
+  }, []);
 
   const monthStr = useMemo(() => {
     const y = currentDate.getFullYear();
@@ -23,7 +24,6 @@ export default function Home() {
   const allTxs = useLiveQuery(() => db.transactions.toArray());
   const monthlyTxs = useMemo(() => allTxs?.filter(t => t.date.startsWith(monthStr)) || [], [allTxs, monthStr]);
 
-  // 核心同步逻辑
   const handleExport = async () => {
     const data = {
       accounts: await db.accounts.toArray(),
@@ -47,9 +47,9 @@ export default function Home() {
         await db.transactions.bulkAdd(decoded.transactions);
         await db.autoTemplates.bulkAdd(decoded.autoTemplates);
       });
-      alert('🚀 导入成功！正在为您更新页面...');
+      alert('🚀 导入成功！');
       window.location.reload();
-    } catch (e) { alert('❌ 导入失败，请确保代码完整且正确。'); }
+    } catch (e) { alert('❌ 导入失败'); }
   };
 
   return (
@@ -76,17 +76,13 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-md rounded-t-[3rem] p-8 animate-in slide-in-from-bottom duration-300">
             <div className="flex justify-between items-center mb-6">
-               <h2 className="text-lg font-black italic">数据搬家 (Vercel 同步)</h2>
+               <h2 className="text-lg font-black italic">数据搬家</h2>
                <button onClick={()=>setShowSync(false)} className="p-2 bg-slate-100 rounded-full"><X size={20}/></button>
             </div>
-            <p className="text-xs text-slate-400 mb-4 font-bold leading-relaxed">
-              1. 在【本地环境】点“导出”并复制文本<br/>
-              2. 在【Vercel环境】贴入文本并点“导入”
-            </p>
-            <textarea value={syncData} onChange={(e)=>setSyncData(e.target.value)} className="w-full h-32 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-[10px] font-mono mb-6 outline-none focus:border-blue-400 transition-all shadow-inner" placeholder="在此粘贴导出的备份代码..."></textarea>
+            <textarea value={syncData} onChange={(e)=>setSyncData(e.target.value)} className="w-full h-32 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-[10px] font-mono mb-6 outline-none focus:border-blue-400 shadow-inner" placeholder="备份代码..."></textarea>
             <div className="grid grid-cols-2 gap-4">
-              <button onClick={handleExport} className="flex items-center justify-center gap-2 py-4 bg-slate-900 text-white rounded-2xl text-xs font-black shadow-lg"><Download size={16}/> 导出本地数据</button>
-              <button onClick={handleImport} className="flex items-center justify-center gap-2 py-4 bg-blue-600 text-white rounded-2xl text-xs font-black shadow-lg"><Upload size={16}/> 导入到此设备</button>
+              <button onClick={handleExport} className="py-4 bg-slate-900 text-white rounded-2xl text-xs font-black shadow-lg">导出数据</button>
+              <button onClick={handleImport} className="py-4 bg-blue-600 text-white rounded-2xl text-xs font-black shadow-lg">导入数据</button>
             </div>
           </div>
         </div>
@@ -102,23 +98,17 @@ export default function Home() {
               <button onClick={() => setView('AUTO')} className="p-3 bg-amber-50 text-amber-600 rounded-2xl flex flex-col items-center gap-2 border border-amber-100 shadow-sm"><Calendar size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">固定</span></button>
             </div>
 
-            <button onClick={() => setView('CHART')} className="w-full mb-8 p-6 bg-slate-800 text-white rounded-[2.5rem] flex items-center justify-between shadow-2xl active:scale-95 transition-all">
+            <button onClick={() => setView('CHART')} className="w-full mb-8 p-6 bg-slate-800 text-white rounded-[2.5rem] flex items-center justify-between shadow-2xl">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-white/10 rounded-2xl"><PieIcon size={24}/></div>
-                <div className="text-left">
-                  <p className="text-sm font-black tracking-widest uppercase">报表分析</p>
-                  <p className="text-[10px] opacity-40 font-bold">查看饼图详情</p>
-                </div>
+                <div className="text-left"><p className="text-sm font-black uppercase">报表分析</p></div>
               </div>
               <ChevronRight size={20} className="opacity-30"/>
             </button>
             
-            <div className="flex justify-between items-center mb-6 px-1">
-              <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">最近流水</h2>
-            </div>
             <div className="space-y-4">
               {monthlyTxs.slice().reverse().map(t => (
-                <div key={t.id} className="flex justify-between items-center px-1">
+                <div key={t.id} className="flex justify-between items-center">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400"><Zap size={18}/></div>
                     <div><p className="font-bold text-sm">{t.description}</p><p className="text-[10px] text-slate-400 font-bold uppercase">{t.date} · {t.category}</p></div>

@@ -1,6 +1,6 @@
 {
-  "name": "finance-v28",
-  "version": "0.2.8",
+  "name": "finance-v40",
+  "version": "0.4.0",
   "private": true,
   "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
   "dependencies": {
