@@ -5,6 +5,12 @@ import { db } from '../lib/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Wallet, CreditCard, Tag, Calendar, ArrowLeft, Zap, ChevronLeft, ChevronRight, PieChart as PieIcon, Plus, Settings } from 'lucide-react';
 
+// 定义明确的类型接口以修复 Vercel 构建错误
+interface CatStat {
+  total: number;
+  accounts: Record<number, number>;
+}
+
 const SimplePieChart = ({ data }: { data: { label: string, value: number, color: string }[] }) => {
   const total = data.reduce((s, d) => s + d.value, 0);
   let cumulativePercent = 0;
@@ -36,7 +42,7 @@ const SimplePieChart = ({ data }: { data: { label: string, value: number, color:
 export default function Home() {
   const [view, setView] = useState('LIST');
   const [chartTab, setChartTab] = useState('EXP');
-  const [expandedCat, setExpandedCat] = useState(null);
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const monthStr = useMemo(() => {
@@ -51,20 +57,27 @@ export default function Home() {
 
   const reportData = useMemo(() => {
     const filtered = monthlyTxs.filter(t => chartTab === 'EXP' ? t.amount < 0 : t.amount > 0);
-    const total = filtered.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const catMap = {};
+    const totalAmount = filtered.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    
+    // 修复构建错误的关键：显式声明对象类型
+    const catMap: Record<string, CatStat> = {};
+    
     filtered.forEach(t => {
       if (!catMap[t.category]) catMap[t.category] = { total: 0, accounts: {} };
       const absAmt = Math.abs(t.amount);
       catMap[t.category].total += absAmt;
       catMap[t.category].accounts[t.accountId] = (catMap[t.category].accounts[t.accountId] || 0) + absAmt;
     });
+
     const colors = ['#6366f1', '#f43f5e', '#fbbf24', '#10b981', '#8b5cf6'];
     return Object.entries(catMap).map(([name, data]) => ({
-      name, amount: data.total, percent: total > 0 ? (data.total / total) * 100 : 0,
+      name,
+      amount: data.total,
+      percent: totalAmount > 0 ? (data.total / totalAmount) * 100 : 0,
       pieData: Object.entries(data.accounts).map(([aid, amt], idx) => ({
         label: accounts?.find(a => a.id === parseInt(aid))?.name || '未知',
-        value: amt, color: colors[idx % colors.length]
+        value: amt,
+        color: colors[idx % colors.length]
       }))
     })).sort((a, b) => b.amount - a.amount);
   }, [monthlyTxs, chartTab, accounts]);
@@ -73,7 +86,8 @@ export default function Home() {
     <div className="max-w-md mx-auto bg-white min-h-screen pb-12 shadow-2xl font-sans text-slate-900">
       <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white rounded-b-[3rem] shadow-xl">
         <h1 className="text-xl font-black mb-6 tracking-tight">财务管理</h1>
-        <div className="space-y-3">
+        {/* 锁定垂直布局 */}
+        <div className="flex flex-col gap-3">
           {accounts?.map(a => (
             <div key={a.id} className="flex justify-between items-center bg-white/10 p-4 rounded-2xl border border-white/5 shadow-inner">
               <span className="text-[11px] font-bold uppercase tracking-widest opacity-80">{a.name}</span>
@@ -86,12 +100,12 @@ export default function Home() {
 
       <div className="p-6">
         {view === 'LIST' ? (
-          <div className="animate-in fade-in duration-500">
+          <div className="animate-in fade-in">
             <div className="grid grid-cols-4 gap-3 mb-8">
-              <button onClick={() => setView('ACC')} className="p-3 bg-blue-50 text-blue-600 rounded-2xl flex flex-col items-center gap-2 border border-blue-100"><Wallet size={20}/><span className="text-[9px] font-black uppercase">账号</span></button>
-              <button onClick={() => setView('TX')} className="p-3 bg-rose-50 text-rose-600 rounded-2xl flex flex-col items-center gap-2 border border-rose-100"><Plus size={20}/><span className="text-[9px] font-black uppercase">记账</span></button>
-              <button onClick={() => setView('CAT')} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl flex flex-col items-center gap-2 border border-indigo-100"><Tag size={20}/><span className="text-[9px] font-black uppercase">分类</span></button>
-              <button onClick={() => setView('AUTO')} className="p-3 bg-amber-50 text-amber-600 rounded-2xl flex flex-col items-center gap-2 border border-amber-100"><Calendar size={20}/><span className="text-[9px] font-black uppercase">固定</span></button>
+              <button onClick={() => setView('ACC')} className="p-3 bg-blue-50 text-blue-600 rounded-2xl flex flex-col items-center gap-2 border border-blue-100"><Wallet size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">账号</span></button>
+              <button onClick={() => setView('TX')} className="p-3 bg-rose-50 text-rose-600 rounded-2xl flex flex-col items-center gap-2 border border-rose-100"><Plus size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">记账</span></button>
+              <button onClick={() => setView('CAT')} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl flex flex-col items-center gap-2 border border-indigo-100"><Tag size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">分类</span></button>
+              <button onClick={() => setView('AUTO')} className="p-3 bg-amber-50 text-amber-600 rounded-2xl flex flex-col items-center gap-2 border border-amber-100"><Calendar size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">固定</span></button>
             </div>
 
             <button onClick={() => setView('CHART')} className="w-full mb-8 p-6 bg-slate-900 text-white rounded-[2.5rem] flex items-center justify-between shadow-2xl active:scale-95 transition-all">
@@ -115,8 +129,8 @@ export default function Home() {
             </div>
             
             <div className="space-y-4">
-              {monthlyTxs.reverse().map(t => (
-                <div key={t.id} className="flex justify-between items-center group px-1">
+              {monthlyTxs.slice().reverse().map(t => (
+                <div key={t.id} className="flex justify-between items-center px-1">
                   <div className="flex items-center gap-4">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${t.amount < 0 ? 'bg-rose-50 text-rose-500':'bg-emerald-50 text-emerald-500'}`}><Zap size={18}/></div>
                     <div><p className="font-bold text-sm">{t.description}</p><p className="text-[10px] text-slate-400 font-bold uppercase">{t.date} · {t.category}</p></div>
@@ -158,9 +172,9 @@ export default function Home() {
             </div>
           </div>
         ) : (
-          <div className="animate-in slide-in-from-bottom">
+          <div>
             <button onClick={() => setView('LIST')} className="flex items-center gap-2 text-slate-400 mb-8 text-xs font-black uppercase tracking-widest"><ArrowLeft size={16}/> 返回主页</button>
-            <p className="text-center py-20 text-[10px] font-black text-slate-200 italic">子模块正在重新挂载全量代码...</p>
+            <p className="text-center py-20 text-[10px] font-black text-slate-200 italic">子模块正在重新挂载代码...</p>
           </div>
         )}
       </div>
