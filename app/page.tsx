@@ -1,69 +1,62 @@
 'use client';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { db, runMigration } from '../lib/db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Wallet, Tag, Calendar, ArrowLeft, Zap, ChevronLeft, ChevronRight, PieChart as PieIcon, Plus, Download, Upload, RefreshCw, X } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import { Wallet, Tag, Calendar, ChevronRight, PieChart as PieIcon, Plus, RefreshCw, X, CloudUpload, Zap } from 'lucide-react';
 
 export default function Home() {
-  const [view, setView] = useState('LIST');
   const [showSync, setShowSync] = useState(false);
-  const [syncData, setSyncData] = useState('');
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [sbUrl, setSbUrl] = useState('');
+  const [sbKey, setSbKey] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+  
+  useEffect(() => { runMigration(); }, []);
 
-  useEffect(() => {
-    runMigration();
-  }, []);
+  const accounts = useLiveQuery(() => db.accounts.toArray()) || [];
+  const categories = useLiveQuery(() => db.categories.toArray()) || [];
+  const allTxs = useLiveQuery(() => db.transactions.toArray()) || [];
+  const autos = useLiveQuery(() => db.autoTemplates.toArray()) || [];
 
-  const monthStr = useMemo(() => {
-    const y = currentDate.getFullYear();
-    const m = (currentDate.getMonth() + 1).toString().padStart(2, '0');
-    return `${y}-${m}`;
-  }, [currentDate]);
-
-  const accounts = useLiveQuery(() => db.accounts.toArray());
-  const allTxs = useLiveQuery(() => db.transactions.toArray());
-  const monthlyTxs = useMemo(() => allTxs?.filter(t => t.date.startsWith(monthStr)) || [], [allTxs, monthStr]);
-
-  const handleExport = async () => {
-    const data = {
-      accounts: await db.accounts.toArray(),
-      categories: await db.categories.toArray(),
-      transactions: await db.transactions.toArray(),
-      autoTemplates: await db.autoTemplates.toArray()
-    };
-    setSyncData(btoa(encodeURIComponent(JSON.stringify(data))));
-    alert('✅ 数据已导出！请复制下方文本框内的代码。');
-  };
-
-  const handleImport = async () => {
-    if(!syncData) return alert('请先粘贴备份代码');
+  const pushToCloud = async () => {
+    if (!sbUrl || !sbKey) return alert('请输入 Supabase 配置');
+    setIsSyncing(true);
+    const supabase = createClient(sbUrl, sbKey);
     try {
-      const decoded = JSON.parse(decodeURIComponent(atob(syncData)));
-      await db.transaction('rw', [db.accounts, db.categories, db.transactions, db.autoTemplates], async () => {
-        await db.accounts.clear(); await db.categories.clear();
-        await db.transactions.clear(); await db.autoTemplates.clear();
-        await db.accounts.bulkAdd(decoded.accounts);
-        await db.categories.bulkAdd(decoded.categories);
-        await db.transactions.bulkAdd(decoded.transactions);
-        await db.autoTemplates.bulkAdd(decoded.autoTemplates);
-      });
-      alert('🚀 导入成功！');
-      window.location.reload();
-    } catch (e) { alert('❌ 导入失败'); }
+      // 1. 同步账号
+      if(accounts.length) await supabase.from('accounts').upsert(accounts);
+      // 2. 同步分类
+      if(categories.length) await supabase.from('categories').upsert(categories);
+      // 3. 同步交易 (映射 account_id)
+      if(allTxs.length) {
+        const txMapped = allTxs.map(t => ({
+          id: t.id, amount: t.amount, description: t.description,
+          date: t.date, account_id: t.accountId, category: t.category
+        }));
+        await supabase.from('transactions').upsert(txMapped);
+      }
+      // 4. 同步自动模板 (映射 account_id)
+      if(autos.length) {
+        const autoMapped = autos.map(a => ({
+          id: a.id, amount: a.amount, description: a.description,
+          day_of_month: a.dayOfMonth, account_id: a.accountId, category: a.category
+        }));
+        await supabase.from('auto_templates').upsert(autoMapped);
+      }
+      alert('✅ 四表全量云端同步成功！');
+    } catch (e: any) { alert('同步失败: ' + e.message); }
+    finally { setIsSyncing(false); }
   };
 
   return (
-    <div className="max-w-md mx-auto bg-white min-h-screen pb-12 shadow-2xl font-sans text-slate-900">
+    <div className="max-w-md mx-auto bg-white min-h-screen pb-12 shadow-2xl relative overflow-hidden">
       <div className="bg-slate-900 p-8 text-white rounded-b-[3rem] shadow-xl">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-xl font-black">财务管理</h1>
-          <button onClick={() => setShowSync(true)} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 rounded-full text-[10px] font-black hover:bg-blue-500 transition-all shadow-lg">
-            <RefreshCw size={12}/> 数据搬家
-          </button>
+          <h1 className="text-xl font-black italic tracking-tighter">财务管理</h1>
+          <button onClick={() => setShowSync(true)} className="p-2 bg-blue-600 rounded-2xl shadow-lg active:scale-95 transition-all"><RefreshCw size={18}/></button>
         </div>
-
         <div className="flex flex-col gap-3">
-          {accounts?.map(a => (
+          {accounts.map(a => (
             <div key={a.id} className="flex justify-between items-center bg-white/10 p-4 rounded-2xl border border-white/5 shadow-inner">
               <span className="text-[11px] font-bold opacity-60 uppercase tracking-tighter">{a.name}</span>
               <span className="font-mono font-bold text-lg text-blue-400">¥{a.balance.toFixed(2)}</span>
@@ -73,56 +66,44 @@ export default function Home() {
       </div>
 
       {showSync && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
-          <div className="bg-white w-full max-w-md rounded-t-[3rem] p-8 animate-in slide-in-from-bottom duration-300">
-            <div className="flex justify-between items-center mb-6">
-               <h2 className="text-lg font-black italic">数据搬家</h2>
-               <button onClick={()=>setShowSync(false)} className="p-2 bg-slate-100 rounded-full"><X size={20}/></button>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[100] flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-[360px] rounded-[2.5rem] p-8 animate-in zoom-in-95 duration-200 shadow-2xl relative text-center">
+            <button onClick={()=>setShowSync(false)} className="absolute top-6 right-6 p-2 bg-slate-100 rounded-full text-slate-400"><X size={16}/></button>
+            <h2 className="text-xl font-black mb-1">云端同步</h2>
+            <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mb-8 italic">Full Table UUID Mapping</p>
+            <div className="space-y-4 mb-8 text-left">
+              <input value={sbUrl} onChange={e=>setSbUrl(e.target.value)} placeholder="Supabase URL" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-400 outline-none rounded-2xl text-[10px] font-mono" />
+              <input value={sbKey} onChange={e=>setSbKey(e.target.value)} placeholder="Supabase Anon Key" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-400 outline-none rounded-2xl text-[10px] font-mono" />
             </div>
-            <textarea value={syncData} onChange={(e)=>setSyncData(e.target.value)} className="w-full h-32 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4 text-[10px] font-mono mb-6 outline-none focus:border-blue-400 shadow-inner" placeholder="备份代码..."></textarea>
-            <div className="grid grid-cols-2 gap-4">
-              <button onClick={handleExport} className="py-4 bg-slate-900 text-white rounded-2xl text-xs font-black shadow-lg">导出数据</button>
-              <button onClick={handleImport} className="py-4 bg-blue-600 text-white rounded-2xl text-xs font-black shadow-lg">导入数据</button>
-            </div>
+            <button onClick={pushToCloud} disabled={isSyncing} className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black text-xs shadow-xl flex items-center justify-center gap-3">
+              {isSyncing ? <RefreshCw className="animate-spin" size={16}/> : <><CloudUpload size={18}/> 推送全量数据</>}
+            </button>
           </div>
         </div>
       )}
 
       <div className="p-6">
-        {view === 'LIST' ? (
-          <div className="animate-in fade-in">
-            <div className="grid grid-cols-4 gap-3 mb-8">
-              <button onClick={() => setView('ACC')} className="p-3 bg-blue-50 text-blue-600 rounded-2xl flex flex-col items-center gap-2 border border-blue-100 shadow-sm"><Wallet size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">账号</span></button>
-              <button onClick={() => setView('TX')} className="p-3 bg-rose-50 text-rose-600 rounded-2xl flex flex-col items-center gap-2 border border-rose-100 shadow-sm"><Plus size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">记账</span></button>
-              <button onClick={() => setView('CAT')} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl flex flex-col items-center gap-2 border border-indigo-100 shadow-sm"><Tag size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">分类</span></button>
-              <button onClick={() => setView('AUTO')} className="p-3 bg-amber-50 text-amber-600 rounded-2xl flex flex-col items-center gap-2 border border-amber-100 shadow-sm"><Calendar size={20}/><span className="text-[9px] font-black uppercase tracking-tighter">固定</span></button>
-            </div>
-
-            <button onClick={() => setView('CHART')} className="w-full mb-8 p-6 bg-slate-800 text-white rounded-[2.5rem] flex items-center justify-between shadow-2xl">
+        <div className="grid grid-cols-4 gap-3 mb-8 text-center">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl flex flex-col items-center gap-2 border border-blue-100"><Wallet size={20}/><span className="text-[9px] font-black uppercase">账号</span></div>
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl flex flex-col items-center gap-2 border border-rose-100"><Plus size={20}/><span className="text-[9px] font-black uppercase">记账</span></div>
+          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl flex flex-col items-center gap-2 border border-indigo-100"><Tag size={20}/><span className="text-[9px] font-black uppercase">分类</span></div>
+          <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl flex flex-col items-center gap-2 border border-amber-100"><Calendar size={20}/><span className="text-[9px] font-black uppercase">固定</span></div>
+        </div>
+        <div className="w-full mb-8 p-6 bg-slate-800 text-white rounded-[2.5rem] flex items-center justify-between shadow-2xl">
+          <div className="flex items-center gap-4"><div className="p-3 bg-white/10 rounded-2xl"><PieIcon size={24}/></div><p className="text-sm font-black uppercase">报表分析</p></div>
+          <ChevronRight size={20} className="opacity-30"/>
+        </div>
+        <div className="space-y-4">
+          {allTxs.slice(-5).reverse().map(t => (
+            <div key={t.id} className="flex justify-between items-center">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-white/10 rounded-2xl"><PieIcon size={24}/></div>
-                <div className="text-left"><p className="text-sm font-black uppercase">报表分析</p></div>
+                <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400"><Zap size={18}/></div>
+                <div><p className="font-bold text-sm">{t.description}</p><p className="text-[10px] text-slate-400 font-bold uppercase">{t.date} · {t.category}</p></div>
               </div>
-              <ChevronRight size={20} className="opacity-30"/>
-            </button>
-            
-            <div className="space-y-4">
-              {monthlyTxs.slice().reverse().map(t => (
-                <div key={t.id} className="flex justify-between items-center">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400"><Zap size={18}/></div>
-                    <div><p className="font-bold text-sm">{t.description}</p><p className="text-[10px] text-slate-400 font-bold uppercase">{t.date} · {t.category}</p></div>
-                  </div>
-                  <span className={`font-mono font-bold text-sm ${t.amount < 0 ? 'text-rose-500':'text-emerald-600'}`}>{t.amount.toFixed(2)}</span>
-                </div>
-              ))}
+              <span className={`font-mono font-bold text-sm ${t.amount < 0 ? 'text-rose-500':'text-emerald-600'}`}>{t.amount.toFixed(2)}</span>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center py-20">
-             <button onClick={() => setView('LIST')} className="flex items-center gap-2 text-slate-400 mb-8 text-xs font-black uppercase"><ArrowLeft size={16}/> 返回主页</button>
-          </div>
-        )}
+          ))}
+        </div>
       </div>
     </div>
   );
